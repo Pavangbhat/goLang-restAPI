@@ -1,86 +1,111 @@
 package controllers
 
 import (
-	"encoding/json"
-	"net/http"
-	"strconv"
+	"context"
+	"log"
 
-	"github.com/gorilla/mux"
+	"cloud.google.com/go/firestore"
+	"github.com/gofiber/fiber/v2"
 	"github.com/pavangbhat/gotest/models"
+	"google.golang.org/api/iterator"
 )
 
+var (
+	projectId = "golang-test-cdf69"
+	collectionName="goals"
+)
 
-var goals []models.Goals
+func GetGoals(c *fiber.Ctx) error{
+	ctx := context.Background()
+	client, err := firestore.NewClient(ctx,  projectId)
 
-// controllers
-func GenerateGoals(w http.ResponseWriter,r *http.Request){
-	w.Header().Set("Content-Type","application/json")
-	goals = append(goals, models.Goals{Id:1,Title: "Read on event loop",Status: "completed"})
-	goals = append(goals, models.Goals{Id:2,Title: "read just javaScript articles",Status: "active"})
-	goals = append(goals, models.Goals{Id:3,Title: "learn go",Status: "closed"})
-
-	var status = map[string]string{"message":"Succesfully generated a goals"}
-	json.NewEncoder(w).Encode(status)
-}
-
-func CreateGoal(w http.ResponseWriter,r *http.Request){
-	w.Header().Set("Content-Type","application/json")
-	var goal models.Goals
-	_ =json.NewDecoder(r.Body).Decode(&goal)
-	goals=append(goals,goal)
-	var status = map[string]string{"message":"Succesfully created a goal"}
-	json.NewEncoder(w).Encode(status)
-}
-
-func GetGoals(w http.ResponseWriter,r *http.Request){
-	w.Header().Set("Content-Type","application/json")
-	if len(goals) ==0 {
-		var status = map[string]string{"message":"Generate goals by hiting / route"}
-		json.NewEncoder(w).Encode(status)
-	}else {
-		json.NewEncoder(w).Encode(goals)
+	if err != nil {
+		log.Fatalf("Failed to create a Firestore Client: %v", err)
+		c.Status(400)
+		return c.JSON(fiber.Map{
+			"message":"Failed to create a Firestore Client:",
+		})
 	}
-}
 
-func GetGoal(w http.ResponseWriter,r *http.Request){
-	w.Header().Set("Content-Type","application/json")
-	params := mux.Vars(r)
-	for _,goal:= range goals{
-		if strconv.Itoa(goal.Id) == params["id"] {
-			json.NewEncoder(w).Encode(goal)
-			return
+	defer client.Close()
+
+	var goals []models.Goals
+
+	it := client.Collection(collectionName).Documents(ctx)
+	for {
+		doc, err := it.Next()
+		if err == iterator.Done {
+			break
 		}
+		if err != nil {
+			log.Fatalf("Failed to iterate the list of posts: %v", err)
+			break
+		}
+		goal := models.Goals{
+			Id:    doc.Data()["id"].(int64),
+			Title: doc.Data()["title"].(string),
+			Status:  doc.Data()["status"].(string),
+		}
+
+		goals = append(goals, goal)
 	}
-	http.Error(w,"No goal found",http. StatusBadRequest)
+
+	if err != nil {
+		log.Fatalf("Failed geting goals: %v", err)
+	}
+
+	return c.JSON(goals)
 }
 
-func UpdateGoal(w http.ResponseWriter,r *http.Request){
-	w.Header().Set("Content-Type","application/json")
-	params := mux.Vars(r)
-	for index,goal:= range goals{
-		if strconv.Itoa(goal.Id) == params["id"] {
-			goals = append(goals[:index], goals[index+1:]...) //remove a goal from map
-			var goal models.Goals
-			_ =json.NewDecoder(r.Body).Decode(&goal)
-			goals=append(goals,goal)
-			var status = map[string]string{"message":"Succesfully updated a goal"}
-			json.NewEncoder(w).Encode(status)
-			return
-		}
+func CreateGoal(c *fiber.Ctx) error{
+	c.Accepts("application/json")
+	ctx := context.Background()
+	
+	newGoal := new(models.Goals)
+
+	if err := c.BodyParser(newGoal); err != nil {
+		c.Status(400)
+		return c.JSON(fiber.Map{
+			"message":"Invaild data or wrong format",
+		  })
 	}
-	http.Error(w,"No goal found",http. StatusBadRequest)
+
+	client, err := firestore.NewClient(ctx,  projectId)
+	if err != nil {
+		c.Status(400)
+		return c.JSON(fiber.Map{
+			"message":"Failed to connect client",
+		  })
+	}
+
+	defer client.Close()
+
+
+	_, _, err = client.Collection(collectionName).Add(ctx, map[string]interface{}{
+		"id":    newGoal.Id,
+		"title": newGoal.Title,
+		"status":  newGoal.Status,
+	})
+
+	if err != nil {
+		c.Status(400)
+		return c.JSON(fiber.Map{
+			"message":"Error writing data",
+		  })
+	}
+	return c.JSON(fiber.Map{
+		"message":"Sucessfull add a goal",
+	  })
 }
 
-func DeleteGoal(w http.ResponseWriter,r *http.Request){
-	w.Header().Set("Content-Type","application/json")
-	params := mux.Vars(r)
-	for index,goal:= range goals{
-		if strconv.Itoa(goal.Id) == params["id"] {
-			goals = append(goals[:index], goals[index+1:]...)
-			var status = map[string]string{"message":"Succesfully deleted a goal"}
-			json.NewEncoder(w).Encode(status)
-			return
-		}
-	}
-	http.Error(w,"No goal found",http. StatusBadRequest)
+func UpdateGoal(c *fiber.Ctx) error{
+	return c.JSON(fiber.Map{
+		"message":"In progress",
+	  })
+}
+
+func DeleteGoal(c *fiber.Ctx) error{
+	return c.JSON(fiber.Map{
+		"message":"In progress",
+	  })
 }
